@@ -6,9 +6,8 @@ const { fe, fes, check_title, check_price } = require('./util')
 
 const base_url = 'https://www.mercari.com/jp'
 
-async function search (driver, target) {
-  const { search_word, max_newest } = target
-  await driver.get(`${base_url}/search/?keyword=${search_word}`)
+async function search_wrap(driver, search_word, max_newest) {
+  await driver.get(`${base_url}/search/?keyword=${encodeURIComponent(search_word)}`)
 
   const items = await fes(driver, 'items-box')
   const n = max_newest ? Math.min(items.length, max_newest) : items.length
@@ -17,6 +16,16 @@ async function search (driver, target) {
       items.slice(0, n).map(item => item.findElement(By.css('a')).getAttribute('href'))
     )
   ).map(u => u.split('?')[0])
+}
+
+async function search (driver, target) {
+  const { search_words, max_newest } = target
+  const words = search_words.split(',')
+  const urls = []
+  for (const w of words) {
+    urls.push(await search_wrap(driver, w, max_newest))
+  }
+  return _.flatten(urls)
 }
 
 async function get_item_info (driver, url) {
