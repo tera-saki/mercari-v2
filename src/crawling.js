@@ -6,47 +6,50 @@ const { fe, fes, check_title, check_price } = require('./util')
 
 const base_url = 'https://www.mercari.com/jp'
 
+async function search (driver, target) {
+  const { search_words, max_newest } = target
+  const words = search_words.split(',')
+  const results = []
+  for (const w of words) {
+    results.push(await search_wrap(driver, w, max_newest))
+  }
+  return _.flatten(results)
+}
+
 async function search_wrap(driver, search_word, max_newest) {
   await driver.get(`${base_url}/search/?keyword=${encodeURIComponent(search_word)}`)
+  await driver.wait(until.elementLocated(By.className('items-box-photo')))
 
   const items = await fes(driver, 'items-box')
   const n = max_newest ? Math.min(items.length, max_newest) : items.length
   return (
-    await Promise.all(
-      items.slice(0, n).map(item => item.findElement(By.css('a')).getAttribute('href'))
+    await Promise.allSettled(
+      items.slice(0, n).map(item => get_item_info(item))
     )
-  ).map(u => u.split('?')[0])
+  ).map(o => o.value).filter(v => v)
 }
 
-async function search (driver, target) {
-  const { search_words, max_newest } = target
-  const words = search_words.split(',')
-  const urls = []
-  for (const w of words) {
-    urls.push(await search_wrap(driver, w, max_newest))
-  }
-  return _.flatten(urls)
-}
-
-async function get_item_info (driver, url) {
-  await driver.get(url)
-  await driver.wait(until.elementLocated(By.className('item-photo')))
-  const title = await (await fe(driver, 'item-name')).getText()
-  const photo_el = await fe(driver, 'item-photo')
-  const img_url = (
-    await (await photo_el.findElement(By.css('img'))).getAttribute('data-src')
-  ).split('?')[0]
-  const price = (
-    await (await driver.findElement(By.xpath("//div[@class='item-price-box text-center']/span[@class='item-price bold']"))).getText()
-  ).replace(/¥|,/g, '')
-  let on_sale
+async function get_item_info (driver) {
   try {
-    await driver.findElement(By.xpath("//div[@class='item-buy-btn disabled']"))
-    on_sale = false
+    const url = await driver.findElement(By.css('a')).getAttribute('href')
+    const title = await (await fe(driver, 'items-box-name')).getText()
+    const img_url = (
+      await (await driver.findElement(By.css('img'))).getAttribute('data-src')
+    ).split('?')[0]
+    const price = (
+      await (await fe(driver, 'items-box-price')).getText()
+    ).replace(/¥|,/g, '')
+    let on_sale
+    try {
+      await fe(driver, 'item-sold-out-badge')
+      on_sale = false
+    } catch (e) {
+      on_sale = true
+    }
+    return { url, title, price, img_url, on_sale }
   } catch (e) {
-    on_sale = true
+    console.log(e);
   }
-  return { url, title, price, img_url, on_sale }
 }
 
 function is_desired(item, target) {
@@ -71,20 +74,9 @@ async function may_update_item (item) {
 }
 
 async function crawling (driver, target) {
-  const urls = await search(driver, target)
-  const may_update_list = []
-  for (const url of urls) {
-    try {
-      const item = await get_item_info(driver, url)
-      if (!is_desired(item, target)) continue
-
-      may_update_list.push(
-        may_update_item(item)
-      )
-    } catch (e) {
-      console.log(e)
-    }
-  }
+  const items = await search(driver, target)
+  const filtered_items = items.filter(item => is_desired(item, target))
+  const may_update_list = filtered_items.map(item => may_update_item(item))
   return (await Promise.allSettled(may_update_list)).map(o => o.value).filter(v => v)
 }
 
