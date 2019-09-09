@@ -31,7 +31,9 @@ async function search_wrap(driver, search_word, max_newest) {
 
 async function get_item_info (driver) {
   try {
-    const url = await driver.findElement(By.css('a')).getAttribute('href')
+    const url = (
+      await driver.findElement(By.css('a')).getAttribute('href')
+    ).split('?')[0]
     const title = await (await fe(driver, 'items-box-name')).getText()
     const img_url = (
       await (await driver.findElement(By.css('img'))).getAttribute('data-src')
